@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: jobhub_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: jobhub_db
+      MYSQL_USER: jobhub_user
+      MYSQL_PASSWORD: jobhub_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  redis:
+    image: redis:alpine
+    container_name: jobhub_redis
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+    container_name: jobhub_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=mysql+pymysql://jobhub_user:jobhub_password@db:3306/jobhub_db
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=supersecretkey
+    depends_on:
+      - db
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  celery_worker:
+    build:
+      context: ./backend
+    container_name: jobhub_celery
+    environment:
+      - DATABASE_URL=mysql+pymysql://jobhub_user:jobhub_password@db:3306/jobhub_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    command: celery -A app.scheduler.scheduler worker --loglevel=info
+
+  celery_beat:
+    build:
+      context: ./backend
+    container_name: jobhub_celery_beat
+    environment:
+      - DATABASE_URL=mysql+pymysql://jobhub_user:jobhub_password@db:3306/jobhub_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    command: celery -A app.scheduler.scheduler beat --loglevel=info
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: jobhub_frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
